@@ -1,30 +1,60 @@
 import os.path
 import argparse
 import json
+from typing import List, Dict, Optional
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 
 # Scope for Google Calendar API access
 SCOPES = ['https://www.googleapis.com/auth/calendar']
+TOKEN_FILE = 'token.json'
+CREDENTIALS_FILE = 'credentials.json'
 
-def copy_event(service, event, destination_calendar_id, dry_run=False):
-    """Copies the specified event to the specified calendar.
+def get_calendar_service() -> Optional[Resource]:
+    """Authenticates with Google Calendar API and returns the service object."""
+    creds = None
+    if os.path.exists(TOKEN_FILE):
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
-    Args:
-        service: Google Calendar API service object.
-        event: The event data to copy (dictionary).
-        destination_calendar_id: The ID of the destination calendar.
-        dry_run: If True, prints the event information instead of copying.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
 
-    Returns:
-        True if the event was (or would be) copied successfully, False otherwise.
-    """
+    try:
+        return build('calendar', 'v3', credentials=creds)
+    except Exception as error:
+        print(f'Failed to build calendar service: {error}')
+        return None
+
+def fetch_all_events(service: Resource, calendar_id: str) -> List[Dict]:
+    """Fetches all events from the specified calendar, handling pagination."""
+    events = []
+    page_token = None
+    try:
+        while True:
+            results = service.events().list(calendarId=calendar_id, pageToken=page_token).execute()
+            events.extend(results.get('items', []))
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
+        return events
+    except HttpError as error:
+        print(f'An error occurred while fetching events from {calendar_id}: {error}')
+        return []
+
+def copy_event(service: Resource, event: Dict, destination_calendar_id: str, dry_run: bool = False) -> bool:
+    """Copies the specified event to the destination calendar or prints it in dry-run mode."""
     if dry_run:
-        print(f"\n[Dry Run] Event to be copied:")
+        print("\n[Dry Run] Event to be copied:")
         print(json.dumps(event, indent=2, ensure_ascii=False))
         print(f"  Destination Calendar ID: {destination_calendar_id}")
         return True
@@ -38,7 +68,7 @@ def copy_event(service, event, destination_calendar_id, dry_run=False):
             return False
 
 def main():
-    """Copies all events from one calendar to another, handling pagination, and prints the counts of successful and failed copies."""
+    """Copies all events from a source calendar to a destination calendar."""
     parser = argparse.ArgumentParser(description='Copies events from one Google Calendar to another.')
     parser.add_argument('source_calendar_id', help='The ID of the source calendar')
     parser.add_argument('destination_calendar_id', help='The ID of the destination calendar')
@@ -49,56 +79,28 @@ def main():
     destination_calendar_id = args.destination_calendar_id
     dry_run = args.dry_run
 
-    creds = None
-    # The file token.json stores the user's access and refresh tokens, and is
-    # created automatically when the authorization flow completes for the first
-    # time.
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for the next run
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+    service = get_calendar_service()
+    if not service:
+        return
 
-    try:
-        service = build('calendar', 'v3', credentials=creds)
+    events_to_copy = fetch_all_events(service, source_calendar_id)
+    total_events = len(events_to_copy)
+    successful_copies = 0
+    failed_copies = 0
 
-        # Get all events from the source calendar, handling pagination
-        events = []
-        page_token = None
-        while True:
-            results = service.events().list(calendarId=source_calendar_id, pageToken=page_token).execute()
-            events.extend(results.get('items', []))
-            page_token = results.get('nextPageToken')
-            if not page_token:
-                break
+    if events_to_copy:
+        for event in events_to_copy:
+            if copy_event(service, event, destination_calendar_id, dry_run):
+                successful_copies += 1
+            else:
+                failed_copies += 1
+    else:
+        print(f'No events found in the source calendar "{source_calendar_id}".')
 
-        successful_copies = 0
-        failed_copies = 0
-
-        if events:
-            for event_to_copy in events:
-                if copy_event(service, event_to_copy, destination_calendar_id, dry_run):
-                    successful_copies += 1
-                else:
-                    failed_copies += 1
-        else:
-            print(f'No events found in the source calendar "{source_calendar_id}".')
-
-        print(f"\n--- Summary ---")
-        print(f"Total events processed: {len(events)}")
-        print(f"Successfully copied: {successful_copies}")
-        print(f"Failed to copy: {failed_copies}")
-
-    except HttpError as error:
-        print(f'An API error occurred: {error}')
+    print("\n--- Summary ---")
+    print(f"Total events processed: {total_events}")
+    print(f"Successfully copied: {successful_copies}")
+    print(f"Failed to copy: {failed_copies}")
 
 if __name__ == '__main__':
     main()
