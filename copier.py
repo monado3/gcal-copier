@@ -51,20 +51,44 @@ def fetch_all_events(service: Resource, calendar_id: str) -> List[Dict]:
         print(f'An error occurred while fetching events from {calendar_id}: {error}')
         return []
 
-def copy_event(service: Resource, event: Dict, destination_calendar_id: str, dry_run: bool = False) -> bool:
+def modify_event_body(event: Dict, override_color: Optional[str] = None, prepend_description: Optional[str] = None) -> Dict:
+    """Modifies the event body with optional color override and description prepending."""
+    body = event.copy()
+    if override_color:
+        body['colorId'] = override_color
+        print(f"[Override Color] Setting colorId to '{override_color}' for event: {body.get('summary', 'No Summary')}")
+
+    if prepend_description:
+        if 'description' in body:
+            body['description'] = prepend_description + body['description']
+            print(f"[Prepend Description] Prepended '{prepend_description}' to event: {body.get('summary', 'No Summary')}")
+        else:
+            body['description'] = prepend_description
+            print(f"[Prepend Description] Set description to '{prepend_description}' for event: {body.get('summary', 'No Summary')}")
+    return body
+
+def copy_event(service: Resource, event: Dict, destination_calendar_id: str, dry_run: bool = False, override_color: Optional[str] = None, prepend_description: Optional[str] = None) -> bool:
     """Copies the specified event to the destination calendar or prints it in dry-run mode."""
+    body = modify_event_body(event, override_color, prepend_description)
+
     if dry_run:
         print("\n[Dry Run] Event to be copied:")
-        print(json.dumps(event, indent=2, ensure_ascii=False))
+        print(json.dumps(body, indent=2, ensure_ascii=False))
         print(f"  Destination Calendar ID: {destination_calendar_id}")
         return True
     else:
         try:
-            copied_event = service.events().insert(calendarId=destination_calendar_id, body=event).execute()
+            copied_event = service.events().insert(calendarId=destination_calendar_id, body=body).execute()
             print(f"Event '{copied_event.get('htmlLink')}' copied to calendar '{destination_calendar_id}'.")
+            if override_color:
+                print(f"  Color overridden to '{override_color}'.")
+            if prepend_description:
+                print(f"  Description prepended with '{prepend_description}'.")
             return True
         except HttpError as error:
             print(f'An error occurred while copying the event: {error}')
+            print(f'Failed event details:')
+            print(json.dumps(event, indent=2, ensure_ascii=False))
             return False
 
 def main():
@@ -73,11 +97,15 @@ def main():
     parser.add_argument('source_calendar_id', help='The ID of the source calendar')
     parser.add_argument('destination_calendar_id', help='The ID of the destination calendar')
     parser.add_argument('--dry-run', action='store_true', help='Print events to be copied without actually copying them.')
+    parser.add_argument('--override-color', help='Override the colorId of the copied events with this value.')
+    parser.add_argument('--prepend-description', help='String to prepend to the description of copied events.')
     args = parser.parse_args()
 
     source_calendar_id = args.source_calendar_id
     destination_calendar_id = args.destination_calendar_id
     dry_run = args.dry_run
+    override_color = args.override_color
+    prepend_description = args.prepend_description
 
     service = get_calendar_service()
     if not service:
@@ -90,7 +118,7 @@ def main():
 
     if events_to_copy:
         for event in events_to_copy:
-            if copy_event(service, event, destination_calendar_id, dry_run):
+            if copy_event(service, event, destination_calendar_id, dry_run, override_color, prepend_description):
                 successful_copies += 1
             else:
                 failed_copies += 1
