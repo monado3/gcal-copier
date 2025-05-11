@@ -15,3 +15,5 @@
       1. https://qiita.com/doran/items/c735c7b05c0a2ed4bfdb
       2. https://zenn.dev/nomhiro/articles/google-calendar-api
    2. This code is using OAuth2.0
+3. Put crenditals.json under project root in your local
+4. `$ uv run copier.py`
