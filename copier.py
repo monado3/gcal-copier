@@ -79,7 +79,7 @@ def copy_event(service: Resource, event: Dict, destination_calendar_id: str, dry
     else:
         try:
             copied_event = service.events().insert(calendarId=destination_calendar_id, body=body).execute()
-            print(f"Event '{copied_event.get('htmlLink')}' copied to calendar '{destination_calendar_id}'.")
+            print(f"Event {copied_event.get('summary', 'No Summary')} '{copied_event.get('htmlLink')}' copied to calendar '{destination_calendar_id}'.")
             if override_color:
                 print(f"  Color overridden to '{override_color}'.")
             if prepend_description:
