@@ -38,7 +38,7 @@ def copy_event(service, event, destination_calendar_id, dry_run=False):
             return False
 
 def main():
-    """Copies all events from one calendar to another and prints the counts of successful and failed copies."""
+    """Copies all events from one calendar to another, handling pagination, and prints the counts of successful and failed copies."""
     parser = argparse.ArgumentParser(description='Copies events from one Google Calendar to another.')
     parser.add_argument('source_calendar_id', help='The ID of the source calendar')
     parser.add_argument('destination_calendar_id', help='The ID of the destination calendar')
@@ -70,11 +70,15 @@ def main():
     try:
         service = build('calendar', 'v3', credentials=creds)
 
-        # Get all events from the source calendar
-        events_result = service.events().list(calendarId=source_calendar_id).execute()
-        events = events_result.get('items', [])
-        print(f"Fetch events from the source calendar: {len(events)}")
-
+        # Get all events from the source calendar, handling pagination
+        events = []
+        page_token = None
+        while True:
+            results = service.events().list(calendarId=source_calendar_id, pageToken=page_token).execute()
+            events.extend(results.get('items', []))
+            page_token = results.get('nextPageToken')
+            if not page_token:
+                break
 
         successful_copies = 0
         failed_copies = 0
