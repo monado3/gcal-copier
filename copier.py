@@ -21,24 +21,24 @@ def copy_event(service, event, destination_calendar_id, dry_run=False):
         dry_run: If True, prints the event information instead of copying.
 
     Returns:
-        The ID of the copied event, or None if dry_run is True or an error occurs.
+        True if the event was (or would be) copied successfully, False otherwise.
     """
     if dry_run:
         print(f"\n[Dry Run] Event to be copied:")
         print(json.dumps(event, indent=2, ensure_ascii=False))
         print(f"  Destination Calendar ID: {destination_calendar_id}")
-        return None
+        return True
     else:
         try:
             copied_event = service.events().insert(calendarId=destination_calendar_id, body=event).execute()
             print(f"Event '{copied_event.get('htmlLink')}' copied to calendar '{destination_calendar_id}'.")
-            return copied_event.get('id')
+            return True
         except HttpError as error:
             print(f'An error occurred while copying the event: {error}')
-            return None
+            return False
 
 def main():
-    """Copies all events from one calendar to another."""
+    """Copies all events from one calendar to another and prints the counts of successful and failed copies."""
     parser = argparse.ArgumentParser(description='Copies events from one Google Calendar to another.')
     parser.add_argument('source_calendar_id', help='The ID of the source calendar')
     parser.add_argument('destination_calendar_id', help='The ID of the destination calendar')
@@ -73,12 +73,25 @@ def main():
         # Get all events from the source calendar
         events_result = service.events().list(calendarId=source_calendar_id).execute()
         events = events_result.get('items', [])
+        print(f"Fetch events from the source calendar: {len(events)}")
+
+
+        successful_copies = 0
+        failed_copies = 0
 
         if events:
             for event_to_copy in events:
-                copy_event(service, event_to_copy, destination_calendar_id, dry_run)
+                if copy_event(service, event_to_copy, destination_calendar_id, dry_run):
+                    successful_copies += 1
+                else:
+                    failed_copies += 1
         else:
             print(f'No events found in the source calendar "{source_calendar_id}".')
+
+        print(f"\n--- Summary ---")
+        print(f"Total events processed: {len(events)}")
+        print(f"Successfully copied: {successful_copies}")
+        print(f"Failed to copy: {failed_copies}")
 
     except HttpError as error:
         print(f'An API error occurred: {error}')
