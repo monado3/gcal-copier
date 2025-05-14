@@ -3,6 +3,7 @@
 ---
 
 ## What's this?
+- To copy one calendar events to another calendar in Google calendar.
 - You have to:
   - specify copy source calendar id
   - specify copy dest calendar id
